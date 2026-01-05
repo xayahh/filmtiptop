@@ -1,0 +1,17 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache tini
+
+COPY package*.json ./
+
+RUN npm install
+
+COPY src ./src
+
+EXPOSE 3000 9229
+
+ENTRYPOINT ["/sbin/tini", "--"]
+
+CMD ["node", "--inspect=0.0.0.0:9229", "--enable-source-maps", "--trace-warnings", "--trace-deprecation", "src/server.js"]
