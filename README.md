@@ -1,39 +1,41 @@
-# FilmTipTop Frontend
+# FilmTipTop Backend
 
-Next.js 14 frontend for the FilmTipTop movie discovery platform.
+Express.js 5 REST API for the FilmTipTop movie discovery platform.
 
 ## Tech Stack
 
-- **Framework**: Next.js 14 (App Router)
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS
-- **Components**: shadcn/ui (Radix UI primitives)
-- **Icons**: Lucide React
+- **Framework**: Express.js 5
+- **Database**: MongoDB (Mongoose 9)
+- **Authentication**: JWT (jsonwebtoken)
+- **Password Hashing**: bcryptjs
+- **External API**: OMDb API
 
 ## Project Structure
 
 ```
 src/
-├── app/                    # Next.js App Router pages
-│   ├── page.tsx           # Home/Search page
-│   ├── favorites/         # Favorites page (auth required)
-│   ├── blog/              # Blog listing page
-│   └── layout.tsx         # Root layout
-├── components/
-│   ├── ui/                # shadcn/ui components
-│   ├── layout/            # Header, AppLayout
-│   ├── auth/              # Login/Register modals
-│   ├── movies/            # MovieCard, MovieGrid, SearchForm, MovieDetailModal
-│   ├── favorites/         # FavoritesList
-│   └── blog/              # BlogPostCard, BlogList, CreatePostModal
-├── contexts/
-│   ├── auth-context.tsx   # Authentication state
-│   └── search-context.tsx # Search state persistence
-├── hooks/
-│   └── use-toast.ts       # Toast notifications
-└── lib/
-    ├── api.ts             # API client with typed endpoints
-    └── utils.ts           # Utility functions (cn)
+├── server.js              # Express app entry point
+├── config/
+│   └── db.js              # MongoDB connection
+├── middleware/
+│   └── auth.js            # JWT authentication middleware
+├── models/
+│   ├── User.js            # User schema (username, email, password, favorites, role)
+│   ├── Movie.js           # Cached movie data from OMDb
+│   ├── Review.js          # User reviews (rating 1-10, comment)
+│   └── BlogPost.js        # Blog posts (title, content, tags)
+├── controllers/
+│   ├── authController.js      # Register, login, profile
+│   ├── movieController.js     # Search, get, cache
+│   ├── favoritesController.js # Add/remove favorites
+│   ├── reviewController.js    # CRUD reviews
+│   └── blogController.js      # CRUD blog posts
+└── routes/
+    ├── auth.js            # /api/auth/*
+    ├── movies.js          # /api/movies/*
+    ├── favorites.js       # /api/favorites/*
+    ├── reviews.js         # /api/reviews/*
+    └── blog.js            # /api/blog/*
 ```
 
 ## Getting Started
@@ -41,7 +43,8 @@ src/
 ### Prerequisites
 
 - Node.js 20+
-- Backend API running on port 3000
+- MongoDB instance
+- OMDb API key
 
 ### Installation
 
@@ -51,10 +54,14 @@ npm install
 
 ### Environment Variables
 
-Create `.env.local`:
+Create `.env`:
 
 ```
-NEXT_PUBLIC_API_URL=http://localhost:3000/api
+PORT=3000
+MONGODB_URI=mongodb://localhost:27017/filmtiptop
+JWT_SECRET=your-secret-key
+OMDB_API_KEY=your-omdb-api-key
+FRONTEND_URL=http://localhost:3001
 ```
 
 ### Development
@@ -63,78 +70,138 @@ NEXT_PUBLIC_API_URL=http://localhost:3000/api
 npm run dev
 ```
 
-Runs on http://localhost:3000 by default. Use `-p 3001` when running alongside backend:
+Uses nodemon for hot reloading.
+
+### Production
 
 ```bash
-npm run dev -- -p 3001
-```
-
-### Build
-
-```bash
-npm run build
 npm start
 ```
 
-### Linting
+## API Endpoints
 
-```bash
-npm run lint
+### Health Check
+```
+GET /api/health
 ```
 
-## Features
+### Authentication (`/api/auth`)
 
-### Search
-- Movie search via OMDb API proxy
-- Filter by year
-- Quick search tags
-- Search state persists across navigation
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/register` | No | Create account |
+| POST | `/login` | No | Get JWT token |
+| GET | `/profile` | Yes | Get current user |
+| PUT | `/profile` | Yes | Update profile |
+| PUT | `/change-password` | Yes | Change password |
 
-### Authentication
-- JWT-based auth
-- Login/Register modals
-- Protected routes (favorites)
+**Register/Login Response:**
+```json
+{
+  "token": "jwt-token",
+  "user": { "id", "username", "email", "role" }
+}
+```
 
-### Favorites
-- Add/remove movies from favorites
-- Synced with backend
+### Movies (`/api/movies`)
 
-### Reviews
-- Rate movies 1-10
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/search?s=title&y=year` | No | Search OMDb |
+| GET | `/:imdbID` | No | Get movie details |
+| POST | `/` | Yes | Add movie manually |
+| PUT | `/:imdbID/trailer` | Yes | Update trailer URL |
+
+Movies are cached in MongoDB after first OMDb fetch.
+
+### Favorites (`/api/favorites`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/` | Yes | Get all favorites |
+| POST | `/` | Yes | Add favorite |
+| DELETE | `/:imdbID` | Yes | Remove favorite |
+| GET | `/check/:imdbID` | Yes | Check if favorited |
+
+### Reviews (`/api/reviews`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/movie/:imdbID` | No | Get reviews for movie |
+| GET | `/user` | Yes | Get user's reviews |
+| POST | `/` | Yes | Create review |
+| DELETE | `/:id` | Yes | Delete own review |
+
+**Constraints:**
+- Rating: 1-10
 - One review per user per movie
-- View all reviews in movie detail modal
 
-### Blog
-- Create/edit/delete posts
-- Pagination
-- Tag movies in posts
+### Blog (`/api/blog`)
 
-## API Client
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/?page=1&limit=10` | No | List posts (paginated) |
+| GET | `/:id` | No | Get single post |
+| POST | `/` | Yes | Create post |
+| PUT | `/:id` | Yes | Update own post |
+| DELETE | `/:id` | Yes | Delete own post |
 
-All API calls go through `src/lib/api.ts`:
+## Authentication
 
-```typescript
-import { auth, movies, favorites, reviews, blog } from '@/lib/api';
+JWT tokens are passed in the Authorization header:
 
-// Search movies
-const results = await movies.search({ s: 'Matrix', y: '1999' });
+```
+Authorization: Bearer <token>
+```
 
-// Get movie details
-const movie = await movies.get('tt0133093');
+The `auth` middleware validates tokens and attaches `req.userId` to authenticated requests.
 
-// Auth
-await auth.login({ email, password });
-await auth.register({ username, email, password });
+## Models
 
-// Favorites (requires auth)
-await favorites.add(imdbID);
-await favorites.remove(imdbID);
+### User
+```javascript
+{
+  username: String (unique),
+  email: String (unique),
+  password: String (hashed),
+  role: 'user' | 'admin',
+  favorites: [String],       // imdbIDs
+  favoriteGenres: [String]
+}
+```
 
-// Reviews (requires auth)
-await reviews.add({ imdbID, rating: 9, comment: 'Great movie' });
+### Movie
+```javascript
+{
+  imdbID: String (unique),
+  Title: String,
+  Year: String,
+  Poster: String,
+  // ... full OMDb response fields
+  TrailerURL: String
+}
+```
 
-// Blog (requires auth for write operations)
-await blog.create({ title, content, tags: ['sci-fi'] });
+### Review
+```javascript
+{
+  user: ObjectId (ref User),
+  imdbID: String,
+  rating: Number (1-10),
+  comment: String
+}
+// Compound unique index: user + imdbID
+```
+
+### BlogPost
+```javascript
+{
+  author: ObjectId (ref User),
+  title: String,
+  content: String,
+  relatedMovie: String,      // imdbID
+  tags: [String]
+}
 ```
 
 ## Docker
@@ -142,12 +209,29 @@ await blog.create({ title, content, tags: ['sci-fi'] });
 Development Dockerfile at `Dockerfile.dev`:
 
 ```bash
-docker build -f Dockerfile.dev -t frontend .
-docker run -p 3001:3000 frontend
+docker build -f Dockerfile.dev -t backend .
+docker run -p 3000:3000 --env-file .env backend
 ```
 
 Or use docker-compose from project root:
 
 ```bash
-docker compose up frontend
+docker compose up backend
 ```
+
+## Error Handling
+
+All errors return JSON:
+
+```json
+{
+  "message": "Error description"
+}
+```
+
+HTTP status codes:
+- 400: Bad request / validation error
+- 401: Unauthorized
+- 403: Forbidden
+- 404: Not found
+- 500: Server error
